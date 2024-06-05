@@ -1,5 +1,8 @@
 # notion_notes
-notes aplication using notion API
+notes aplication using notion API  
+
+This app allows you to have notes connected to your notion  
+and be able to change them in both notion and app
 
 ___
 
