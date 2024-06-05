@@ -5,7 +5,6 @@ const axios = require('axios');
 const app = express();
 const cors = require('cors');
 const { Client } = require('@notionhq/client');
-
 const path = require("path");
 const fs = require("fs");
 
@@ -13,7 +12,7 @@ app.use(express.json());
 app.use(cors());
 
 const notionToken = process.env.NOTION_TOKEN;
-const database_id = 'c5b9dcb9d0c74cc78f0f4ccf15ea4531';
+const database_id = process.env.NOTION_DATABASE;
 const notion = new Client({ auth: notionToken });
 
 const getCurrentDate = () => {
@@ -143,6 +142,105 @@ app.delete('/notes/:id', async (req, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).send('Internal Server Error');
+    }
+});
+
+// Pobierz dzieci dla konkretnej notatki
+app.get('/notes/:id/children', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const response = await axios.get(`https://api.notion.com/v1/blocks/${id}/children`, {
+            headers: {
+                'Authorization': `Bearer ${notionToken}`,
+                'Notion-Version': '2022-06-28'
+            }
+        });
+        res.json(response.data.results);
+    } catch (error) {
+        console.error('Error fetching children:', error);
+        res.status(500).send('Error fetching children');
+    }
+});
+
+// Zaktualizuj notatkę i jej dzieci
+app.put('/notes/:id', async (req, res) => {
+    const { id } = req.params;
+    const { title, content } = req.body;
+
+    const parsedContent = content.split("[BLOCK-END]")
+
+    const strippedContent = parsedContent.map((content, index) => {
+        if (index === 0) {
+            // Jeśli to pierwszy element, usuń tylko znak nowej linii z końca
+            return content.trimEnd();
+        } else {
+            // W przeciwnym razie usuń znaki nowej linii z początku i końca
+            return content.trim();
+        }
+    });
+
+    try {
+        // Zaktualizuj tytuł notatki
+        await axios.patch(`https://api.notion.com/v1/pages/${id}`, {
+            properties: {
+                "Name": {
+                    "type": "title",
+                    "title": [
+                        {
+                            "type": "text",
+                            "text": {
+                                "content": title,
+                                "link": null
+                            }
+                        }
+                    ]
+                }
+            }
+        }, {
+            headers: {
+                'Authorization': `Bearer ${notionToken}`,
+                'Notion-Version': '2022-06-28'
+            }
+        });
+
+        // Pobierz dzieci notatki
+        const childrenResponse = await axios.get(`https://api.notion.com/v1/blocks/${id}/children`, {
+            headers: {
+                'Authorization': `Bearer ${notionToken}`,
+                'Notion-Version': '2022-06-28'
+            }
+        });
+
+        const children = childrenResponse.data.results;
+
+        let i = 0;
+        // Zaktualizuj każde dziecko
+        for (const child of children) {
+            await axios.patch(`https://api.notion.com/v1/blocks/${child.id}`, {
+                paragraph: {
+                    rich_text: [
+                        {
+                            "type": "text",
+                            "text": {
+                                "content": strippedContent[i],
+                                "link": null
+                            }
+                        }
+                    ]
+                }
+            }, {
+                headers: {
+                    'Authorization': `Bearer ${notionToken}`,
+                    'Notion-Version': '2022-06-28'
+                }
+            });
+            i++;
+        }
+
+        res.status(200).send('Note updated successfully');
+    } catch (error) {
+        console.error('Error updating note:', error);
+        res.status(500).send('Error updating note');
     }
 });
 
